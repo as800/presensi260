@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Presensi — Kantor</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+<div class="wrap" id="wrap">
+
+  <div class="fb-status" id="fbStatus">Menghubungkan ke Firebase…</div>
+
+  <!-- ============ LOGIN VIEW ============ -->
+  <div id="loginView">
+    <div class="eyebrow">Sistem Presensi</div>
+    <h1>Masuk ke akun</h1>
+    <div class="login-card">
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" type="text" placeholder="budi" autocomplete="username">
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" type="password" placeholder="••••••" autocomplete="current-password">
+      </div>
+      <button class="btn btn-primary" id="btnLogin" onclick="handleLogin()">Login</button>
+      <div class="error-text" id="loginError"></div>
+      <div class="hint">
+        Data pegawai (username, password, nama) disimpan langsung sebagai dokumen
+        di koleksi <b>pegawai</b> pada Firestore — ID dokumen = username.
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ DASHBOARD VIEW ============ -->
+  <div id="dashView" class="hidden">
+    <div class="topbar">
+      <div class="who">Halo, <b id="whoName"></b></div>
+      <button class="logout" onclick="handleLogout()">Keluar</button>
+    </div>
+
+    <div class="dash-grid">
+      <div class="dash-left">
+        <div class="clock-card">
+          <div class="clock-time mono" id="clockTime">00:00:00</div>
+          <div class="clock-date" id="clockDate">-</div>
+          <div class="clock-date" id="clockZone" style="font-size:10.5px;letter-spacing:.04em;margin-top:2px;">WIB</div>
+        </div>
+
+        <div class="radar-card">
+          <div class="radar" id="radar">
+            <div class="radar-ring"></div>
+            <div class="radar-ring r2"></div>
+            <div class="radar-sweep"></div>
+            <div class="radar-dot"></div>
+          </div>
+          <div class="radar-info">
+            <span class="status-pill wait" id="statusPill">MENDETEKSI…</span>
+            <div class="radar-dist" id="radarDist">Mengambil lokasi…</div>
+            <div class="radar-coord mono" id="radarCoord">—</div>
+          </div>
+        </div>
+
+        <div class="action-card">
+          <div class="action-row">
+            <button class="btn btn-primary" id="btnMasuk" onclick="handleCheckIn()" disabled>Masuk</button>
+            <button class="btn btn-danger" id="btnPulang" onclick="handleCheckOut()" disabled>Pulang</button>
+          </div>
+          <div class="msg warn" id="actionMsg"></div>
+          <div class="config-note" id="configNote">
+            Radius kantor: <b id="cfgRadius">150</b> m dari titik kantor.
+            <span id="adminConfigWrap" class="hidden">
+              <button onclick="toggleConfig()">Ubah titik kantor</button>
+              <div id="cfgPanel" class="hidden" style="margin-top:10px;">
+                <div class="field"><label>Latitude kantor</label><input id="officeLat" class="mono"></div>
+                <div class="field"><label>Longitude kantor</label><input id="officeLng" class="mono"></div>
+                <div class="field"><label>Radius (meter)</label><input id="officeRadius" class="mono"></div>
+                <div class="field">
+                  <label>Zona Waktu Kantor</label>
+                  <select id="officeTimezoneInput">
+                    <option value="Asia/Jakarta">WIB — Jakarta (UTC+7)</option>
+                    <option value="Asia/Makassar">WITA — Makassar (UTC+8)</option>
+                    <option value="Asia/Jayapura">WIT — Jayapura (UTC+9)</option>
+                  </select>
+                </div>
+                <button class="btn btn-ghost" onclick="saveConfig()">Simpan (berlaku untuk semua pegawai)</button>
+                <div class="msg ok hidden" id="cfgSavedMsg" style="margin-top:8px;">Tersimpan, semua pegawai online akan menerima update ini otomatis.</div>
+              </div>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="dash-right">
+        <div class="card log-card-wide">
+          <div class="report-head">
+            <h2>Riwayat Presensi Saya</h2>
+            <button class="btn btn-ghost" onclick="exportPersonalLogExcel()">Export Excel</button>
+          </div>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead>
+                <tr><th>Tanggal</th><th>Masuk</th><th>Pulang</th></tr>
+              </thead>
+              <tbody id="logBody">
+                <tr class="empty-row"><td colspan="3">Memuat…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card admin-report-card hidden" id="adminReportCard">
+          <div class="report-head">
+            <h2>Laporan Presensi — 30 Hari Terakhir (Semua Pegawai)</h2>
+            <div>
+              <button class="btn btn-ghost" onclick="loadAdminReport()">Muat / Refresh</button>
+              <button class="btn btn-ghost" onclick="exportAdminReportCSV()">Export CSV</button>
+              <button class="btn btn-ghost" onclick="exportAdminReportExcel()">Export Excel</button>
+            </div>
+          </div>
+          <div class="progress-text" id="adminReportStatus"></div>
+          <div style="overflow-x:auto;">
+            <table id="adminReportTable">
+              <thead>
+                <tr><th>Hari</th><th>Tanggal</th><th>Nama</th><th>Kontrak</th><th>Jam Masuk</th><th>Jam Pulang</th><th>Total Jam</th></tr>
+              </thead>
+              <tbody id="adminReportBody">
+                <tr class="empty-row"><td colspan="7">Klik "Muat / Refresh" untuk menampilkan laporan</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card hidden" id="pegawaiManageCard">
+      <div class="report-head">
+        <h2>Kelola Data Pegawai</h2>
+        <button class="btn btn-ghost" onclick="loadPegawaiList()">Muat / Refresh</button>
+      </div>
+
+      <div class="pegawai-form">
+        <div class="field-row">
+          <div class="field"><label>Username</label><input id="pfUsername" type="text" placeholder="001003"></div>
+          <div class="field"><label>Password <span id="pfPasswordHint" class="hint-inline"></span></label><input id="pfPassword" type="text" placeholder="••••••"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Nama</label><input id="pfNama" type="text" placeholder="Nama lengkap"></div>
+          <div class="field"><label>Kontrak</label><input id="pfKontrak" type="text" placeholder="tetap / pramubakti / dst"></div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Status</label>
+            <select id="pfStatus">
+              <option value="user">user</option>
+              <option value="admin">admin</option>
+            </select>
+          </div>
+        </div>
+        <div class="pegawai-form-actions">
+          <button class="btn btn-primary" id="pfSaveBtn" onclick="savePegawaiForm()">Tambah Pegawai</button>
+          <button class="btn btn-ghost hidden" id="pfCancelBtn" onclick="cancelEditPegawai()">Batal Edit</button>
+        </div>
+        <div class="msg hidden" id="pfMsg"></div>
+      </div>
+
+      <div style="overflow-x:auto;margin-top:16px;">
+        <table id="pegawaiListTable">
+          <thead>
+            <tr><th>Username</th><th>Nama</th><th>Kontrak</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody id="pegawaiListBody">
+            <tr class="empty-row"><td colspan="5">Klik "Muat / Refresh" untuk menampilkan daftar pegawai</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script type="module">
+/* =========================================================
+   FIREBASE SETUP
+   Ganti firebaseConfig di bawah ini dengan config project
+   Firebase kamu sendiri (Project Settings > General > Your apps).
+   ========================================================= */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+import {
+  getFirestore, doc, getDoc, setDoc, onSnapshot,
+  collection, addDoc, updateDoc,
+  query, where, orderBy, getDocs,
+  Timestamp, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyApTrfM_W4a2YP4jHrNziMfLlTay8ja4P4",
+  authDomain: "presensi260.firebaseapp.com",
+  projectId: "presensi260",
+  storageBucket: "presensi260.firebasestorage.app",
+  messagingSenderId: "1064617169806",
+  appId: "1:1064617169806:web:6ad118f39375a69f234adf",
+  measurementId: "G-0PBYHCY4WZ"
+};
+
+let app, db;
+try {
+  app = initializeApp(firebaseConfig);
+  db = getFirestore(app);
+  document.getElementById('fbStatus').textContent = 'Firebase siap. Silakan login.';
+  document.getElementById('fbStatus').classList.add('ok');
+} catch (e) {
+  document.getElementById('fbStatus').textContent =
+    'Gagal inisialisasi Firebase. Cek firebaseConfig di kode. (' + e.message + ')';
+  document.getElementById('fbStatus').classList.add('err');
+}
+
+/* ---------- State lokal (bukan penyimpanan utama, hanya cache tampilan) ---------- */
+let officeLocation = { lat: -6.200000, lng: 106.816666, radius: 150 }; // contoh: Jakarta
+let officeTimezone = 'Asia/Jakarta'; // default WIB, bisa diubah admin (WIB/WITA/WIT)
+let currentUser = null;      // { uid (=username), name, username }
+let currentPos = null;       // {lat, lng}
+let currentDistance = null;
+let watchId = null;
+let todayDocId = null;       // ID dokumen presensi hari ini (untuk update saat pulang)
+let inactivityTimer = null;
+const INACTIVITY_LIMIT_MS = 10 * 60 * 1000; // 10 menit
+let officeConfigUnsub = null; // fungsi untuk berhenti mendengarkan perubahan config kantor
+let lastPersonalLogRows = []; // dipakai untuk export Excel riwayat pribadi
+
+const JAM_BOLEH_PULANG = 13; // demo: tombol Pulang aktif mulai jam 13:00 lokal
+
+/* ---------- Auto-logout karena tidak aktif ---------- */
+function resetInactivityTimer() {
+  if (!currentUser) return; // hanya aktif kalau sedang login
+  clearTimeout(inactivityTimer);
+  inactivityTimer = setTimeout(async () => {
+    await handleLogout();
+    const err = document.getElementById('loginError');
+    err.textContent = 'Anda otomatis keluar karena tidak ada aktivitas selama 10 menit.';
+  }, INACTIVITY_LIMIT_MS);
+}
+['mousemove', 'keydown', 'click', 'touchstart', 'scroll'].forEach(evt => {
+  document.addEventListener(evt, resetInactivityTimer, { passive: true });
+});
+
+/* ---------- Utilitas ---------- */
+function haversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLon/2)**2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+function getLocalDateKey(tz, daysOffset = 0) {
+  // Hitung tanggal kalender (YYYY-MM-DD) sesuai timezone kantor, bukan timezone device.
+  // Ini penting supaya tanggal presensi tidak salah geser di sekitar jam 00:00-08:00
+  // untuk zona WITA/WIT dibanding kalau hanya pakai toISOString() (yang berbasis UTC).
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date());
+  const y = +parts.find(p => p.type === 'year').value;
+  const m = +parts.find(p => p.type === 'month').value;
+  const d = +parts.find(p => p.type === 'day').value;
+  const dateObj = new Date(y, m - 1, d);
+  dateObj.setDate(dateObj.getDate() - daysOffset);
+  const yy = dateObj.getFullYear();
+  const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const dd = String(dateObj.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+function todayKey() {
+  return getLocalDateKey(officeTimezone, 0);
+}
+function fmtTime(d) {
+  return d.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone: officeTimezone });
+}
+
+/* ---------- Login / Logout ---------- */
+async function handleLogin() {
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const err = document.getElementById('loginError');
+  const btn = document.getElementById('btnLogin');
+  err.textContent = '';
+
+  if (!username || !password) {
+    err.textContent = 'Isi username dan password.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Memproses…';
+
+  try {
+    // Cari dokumen pegawai berdasarkan ISI FIELD "username" (bukan Document ID),
+    // karena Document ID di Firestore kamu di-generate otomatis.
+    console.log('[DEBUG] Mencari pegawai dengan field username =', username);
+    const q = query(collection(db, 'pegawai'), where('username', '==', username));
+    const snap = await getDocs(q);
+    console.log('[DEBUG] Jumlah dokumen ditemukan:', snap.size);
+
+    if (snap.empty) {
+      err.textContent = `Username "${username}" tidak ditemukan di koleksi "pegawai". Cek field "username" di Firestore Console (harus persis sama, tanpa spasi).`;
+      return;
+    }
+    const profileDoc = snap.docs[0];
+    const profile = profileDoc.data();
+    if (profile.password !== password) {
+      err.textContent = 'Password salah.';
+      return;
+    }
+
+    const isAdmin = (profile.status || '').toString().trim().toLowerCase() === 'admin';
+    currentUser = { uid: profileDoc.id, name: profile.nama || profile.name || username, username, isAdmin };
+    localStorage.setItem('presensi_session', JSON.stringify(currentUser));
+
+    document.getElementById('whoName').textContent = currentUser.name;
+    document.getElementById('loginView').classList.add('hidden');
+    document.getElementById('dashView').classList.remove('hidden');
+    document.getElementById('wrap').classList.add('dash-wrap');
+    document.getElementById('adminConfigWrap').classList.toggle('hidden', !isAdmin);
+    document.getElementById('adminReportCard').classList.toggle('hidden', !isAdmin);
+    document.getElementById('pegawaiManageCard').classList.toggle('hidden', !isAdmin);
+
+    startClock();
+    startOfficeConfigListener();
+    startLocationWatch();
+    await loadTodayRecord();
+    await renderLog();
+    updateButtons();
+    resetInactivityTimer();
+  } catch (e) {
+    err.textContent = 'Gagal login: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Login';
+  }
+}
+
+async function handleLogout() {
+  if (watchId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+  }
+  if (officeConfigUnsub) {
+    officeConfigUnsub();
+    officeConfigUnsub = null;
+  }
+  clearTimeout(inactivityTimer);
+  localStorage.removeItem('presensi_session');
+  currentUser = null;
+  currentPos = null;
+  todayDocId = null;
+  document.getElementById('dashView').classList.add('hidden');
+  document.getElementById('loginView').classList.remove('hidden');
+  document.getElementById('wrap').classList.remove('dash-wrap');
+  document.getElementById('username').value = '';
+  document.getElementById('password').value = '';
+}
+
+/* ---------- Jam ---------- */
+function startClock() {
+  function tick() {
+    const now = new Date();
+    document.getElementById('clockTime').textContent = fmtTime(now);
+    document.getElementById('clockDate').textContent = now.toLocaleDateString('id-ID', {
+      weekday:'long', day:'numeric', month:'long', year:'numeric', timeZone: officeTimezone
+    });
+    updateButtons();
+  }
+  tick();
+  setInterval(tick, 1000);
+}
+
+/* ---------- Geolocation ---------- */
+/* ---------- Config lokasi kantor: realtime dari Firestore ---------- */
+function startOfficeConfigListener() {
+  officeConfigUnsub = onSnapshot(doc(db, 'config', 'office'), snap => {
+    if (snap.exists()) {
+      const data = snap.data();
+      officeLocation = { lat: data.lat, lng: data.lng, radius: data.radius };
+      officeTimezone = data.timezone || 'Asia/Jakarta';
+    }
+    // Update tampilan angka radius & isi form (kalau admin sedang buka panelnya)
+    document.getElementById('cfgRadius').textContent = officeLocation.radius;
+    const latInput = document.getElementById('officeLat');
+    const lngInput = document.getElementById('officeLng');
+    const radiusInput = document.getElementById('officeRadius');
+    const tzInput = document.getElementById('officeTimezoneInput');
+    if (latInput) latInput.value = officeLocation.lat;
+    if (lngInput) lngInput.value = officeLocation.lng;
+    if (radiusInput) radiusInput.value = officeLocation.radius;
+    if (tzInput) tzInput.value = officeTimezone;
+
+    const zoneLabel = { 'Asia/Jakarta': 'WIB', 'Asia/Makassar': 'WITA', 'Asia/Jayapura': 'WIT' }[officeTimezone] || officeTimezone;
+    const zoneEl = document.getElementById('clockZone');
+    if (zoneEl) zoneEl.textContent = zoneLabel;
+
+    // Kalau posisi user sudah ada, hitung ulang jarak dengan titik kantor terbaru
+    if (currentPos) {
+      currentDistance = haversineDistance(currentPos.lat, currentPos.lng, officeLocation.lat, officeLocation.lng);
+      renderRadar();
+      updateButtons();
+    }
+  }, err => {
+    console.error('[officeConfig listener error]', err);
+  });
+}
+
+function startLocationWatch() {
+  if (!navigator.geolocation) {
+    document.getElementById('radarDist').textContent = 'Perangkat tidak mendukung geolokasi.';
+    return;
+  }
+
+  watchId = navigator.geolocation.watchPosition(
+    pos => {
+      currentPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      currentDistance = haversineDistance(
+        currentPos.lat, currentPos.lng,
+        officeLocation.lat, officeLocation.lng
+      );
+      renderRadar();
+      updateButtons();
+    },
+    errMsg => {
+      let penjelasan;
+      switch (errMsg.code) {
+        case 1: penjelasan = 'Izin lokasi ditolak di browser.'; break;
+        case 2: penjelasan = 'Lokasi tidak tersedia. Cek Location Services di pengaturan OS/HP.'; break;
+        case 3: penjelasan = 'Waktu tunggu habis mencari sinyal GPS. Coba area terbuka.'; break;
+        default: penjelasan = errMsg.message || 'Penyebab tidak diketahui.';
+      }
+      document.getElementById('radarDist').textContent = `Gagal ambil lokasi (kode ${errMsg.code}): ${penjelasan}`;
+      document.getElementById('statusPill').textContent = 'LOKASI ERROR';
+      document.getElementById('statusPill').className = 'status-pill out';
+    },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
+}
+
+function renderRadar() {
+  const radar = document.getElementById('radar');
+  const pill = document.getElementById('statusPill');
+  const dist = document.getElementById('radarDist');
+  const coord = document.getElementById('radarCoord');
+
+  const inRange = currentDistance <= officeLocation.radius;
+  radar.classList.toggle('out', !inRange);
+  pill.className = 'status-pill ' + (inRange ? 'in' : 'out');
+  pill.textContent = inRange ? 'DALAM RADIUS KANTOR' : 'DI LUAR RADIUS';
+  dist.innerHTML = `Jarak ke kantor: <b>${Math.round(currentDistance)} m</b>`;
+  coord.textContent = `Anda: ${currentPos.lat.toFixed(6)}, ${currentPos.lng.toFixed(6)}`;
+}
+
+/* ---------- Config titik kantor (lokal, demo saja) ---------- */
+function toggleConfig() {
+  document.getElementById('cfgPanel').classList.toggle('hidden');
+}
+async function saveConfig() {
+  const lat = parseFloat(document.getElementById('officeLat').value);
+  const lng = parseFloat(document.getElementById('officeLng').value);
+  const radius = parseFloat(document.getElementById('officeRadius').value);
+  const timezone = document.getElementById('officeTimezoneInput').value;
+  if (isNaN(lat) || isNaN(lng) || isNaN(radius)) return;
+
+  const savedMsg = document.getElementById('cfgSavedMsg');
+  try {
+    // Tulis ke Firestore. Listener onSnapshot di semua device yang online
+    // (termasuk device ini sendiri) akan otomatis menerima update ini
+    // dan langsung menghitung ulang jarak/radius tanpa perlu refresh.
+    await setDoc(doc(db, 'config', 'office'), { lat, lng, radius, timezone }, { merge: true });
+    savedMsg.classList.remove('hidden');
+    setTimeout(() => savedMsg.classList.add('hidden'), 3000);
+  } catch (e) {
+    alert('Gagal menyimpan ke Firestore: ' + e.message);
+  }
+}
+
+/* ---------- Firestore: cek apakah sudah ada presensi hari ini ---------- */
+async function loadTodayRecord() {
+  todayDocId = null;
+  const q = query(
+    collection(db, 'presensi'),
+    where('employeeId', '==', currentUser.uid),
+    where('date', '==', todayKey())
+  );
+  const snap = await getDocs(q);
+  if (!snap.empty) {
+    todayDocId = snap.docs[0].id;
+    window._todayRecord = snap.docs[0].data();
+  } else {
+    window._todayRecord = null;
+  }
+}
+
+/* ---------- Aksi Masuk / Pulang (tulis ke Firestore) ---------- */
+function updateButtons() {
+  const btnMasuk = document.getElementById('btnMasuk');
+  const btnPulang = document.getElementById('btnPulang');
+  const msg = document.getElementById('actionMsg');
+  msg.textContent = '';
+  msg.classList.remove('ok');
+  msg.classList.add('warn');
+
+  if (!currentUser) return;
+
+  const rec = window._todayRecord;
+  const inRange = currentDistance !== null && currentDistance <= officeLocation.radius;
+  const now = new Date();
+
+  if (rec) {
+    btnMasuk.disabled = true;
+    btnMasuk.textContent = 'Sudah Masuk';
+  } else {
+    btnMasuk.textContent = 'Masuk';
+    btnMasuk.disabled = !inRange;
+    if (!inRange) msg.textContent = 'Anda harus berada dalam radius kantor untuk menekan Masuk.';
+  }
+
+  const bolehJamPulang = now.getHours() >= JAM_BOLEH_PULANG;
+  if (!rec) {
+    btnPulang.disabled = true;
+    btnPulang.textContent = 'Pulang';
+  } else if (rec.checkOutTime) {
+    btnPulang.disabled = true;
+    btnPulang.textContent = 'Sudah Pulang';
+  } else {
+    btnPulang.textContent = 'Pulang';
+    btnPulang.disabled = !(inRange && bolehJamPulang);
+    if (!bolehJamPulang) msg.textContent = `Tombol Pulang aktif mulai pukul ${JAM_BOLEH_PULANG}:00.`;
+    else if (!inRange) msg.textContent = 'Anda harus berada dalam radius kantor untuk menekan Pulang.';
+  }
+}
+
+async function handleCheckIn() {
+  if (!currentPos || !currentUser) return;
+  const btn = document.getElementById('btnMasuk');
+  btn.disabled = true;
+  btn.textContent = 'Menyimpan…';
+  try {
+    const docRef = await addDoc(collection(db, 'presensi'), {
+      employeeId: currentUser.uid,
+      employeeName: currentUser.name,
+      date: todayKey(),
+      checkInTime: serverTimestamp(),
+      checkInLat: currentPos.lat,
+      checkInLng: currentPos.lng,
+      checkOutTime: null,
+      checkOutLat: null,
+      checkOutLng: null
+    });
+    todayDocId = docRef.id;
+    window._todayRecord = {
+      checkInTime: Timestamp.now(), checkInLat: currentPos.lat, checkInLng: currentPos.lng,
+      checkOutTime: null
+    };
+    const msg = document.getElementById('actionMsg');
+    msg.classList.remove('warn'); msg.classList.add('ok');
+    msg.textContent = 'Presensi masuk berhasil disimpan ke Firestore.';
+    await renderLog();
+  } catch (e) {
+    const msg = document.getElementById('actionMsg');
+    msg.textContent = 'Gagal menyimpan ke Firestore: ' + e.message;
+  } finally {
+    updateButtons();
+  }
+}
+
+async function handleCheckOut() {
+  if (!currentPos || !currentUser || !todayDocId) return;
+  const btn = document.getElementById('btnPulang');
+  btn.disabled = true;
+  btn.textContent = 'Menyimpan…';
+  try {
+    await updateDoc(doc(db, 'presensi', todayDocId), {
+      checkOutTime: serverTimestamp(),
+      checkOutLat: currentPos.lat,
+      checkOutLng: currentPos.lng
+    });
+    window._todayRecord.checkOutTime = Timestamp.now();
+    const msg = document.getElementById('actionMsg');
+    msg.classList.remove('warn'); msg.classList.add('ok');
+    msg.textContent = 'Presensi pulang berhasil disimpan ke Firestore.';
+    await renderLog();
+  } catch (e) {
+    const msg = document.getElementById('actionMsg');
+    msg.textContent = 'Gagal menyimpan ke Firestore: ' + e.message;
+  } finally {
+    updateButtons();
+  }
+}
+
+/* ---------- Render tabel log dari Firestore ---------- */
+async function renderLog() {
+  const body = document.getElementById('logBody');
+  body.innerHTML = `<tr class="empty-row"><td colspan="3">Memuat…</td></tr>`;
+
+  // Catatan: query where + orderBy pada field berbeda butuh composite index.
+  // Firestore akan menampilkan link otomatis di console browser untuk membuatnya
+  // saat query ini pertama kali dijalankan.
+  const q = query(
+    collection(db, 'presensi'),
+    where('employeeId', '==', currentUser.uid),
+    orderBy('date', 'desc')
+  );
+
+  let snap;
+  try {
+    snap = await getDocs(q);
+  } catch (e) {
+    console.error('[Firestore renderLog error]', e);
+    const urlMatch = e.message.match(/https:\/\/[^\s)]+/);
+    if (urlMatch) {
+      body.innerHTML = `<tr class="empty-row"><td colspan="3">
+        Perlu index Firestore dulu.
+        <a href="${urlMatch[0]}" target="_blank" rel="noopener" style="color:var(--teal);font-weight:600;">
+          Klik di sini untuk membuat index otomatis
+        </a>, lalu tunggu 1-2 menit dan refresh halaman ini.
+      </td></tr>`;
+    } else {
+      body.innerHTML = `<tr class="empty-row"><td colspan="3">Gagal memuat riwayat: ${e.message}</td></tr>`;
+    }
+    return;
+  }
+
+  if (snap.empty) {
+    body.innerHTML = `<tr class="empty-row"><td colspan="3">Belum ada presensi</td></tr>`;
+    lastPersonalLogRows = [];
+    return;
+  }
+
+  lastPersonalLogRows = snap.docs.map(d => {
+    const r = d.data();
+    const inT = r.checkInTime && r.checkInTime.toDate ? r.checkInTime.toDate() : null;
+    const outT = r.checkOutTime && r.checkOutTime.toDate ? r.checkOutTime.toDate() : null;
+    return {
+      tanggal: r.date,
+      jamMasuk: inT ? fmtTime(inT) : '-',
+      jamPulang: outT ? fmtTime(outT) : '-'
+    };
+  });
+
+  body.innerHTML = snap.docs.map(d => {
+    const r = d.data();
+    const inT = r.checkInTime && r.checkInTime.toDate ? r.checkInTime.toDate() : null;
+    const outT = r.checkOutTime && r.checkOutTime.toDate ? r.checkOutTime.toDate() : null;
+    return `<tr>
+      <td>${r.date}</td>
+      <td>${inT ? fmtTime(inT) : '—'}<div class="coord-cell">${r.checkInLat?.toFixed(5)}, ${r.checkInLng?.toFixed(5)}</div></td>
+      <td>${outT ? fmtTime(outT) : '—'}${outT ? `<div class="coord-cell">${r.checkOutLat.toFixed(5)}, ${r.checkOutLng.toFixed(5)}</div>` : ''}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ---------- Laporan Admin: presensi 30 hari terakhir, semua pegawai ---------- */
+const HARI_ID = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+let lastAdminReportRows = []; // dipakai untuk export CSV
+
+function parseDateKeyLocal(dateKey) {
+  // dateKey format 'YYYY-MM-DD' -> Date object di timezone lokal (hindari geser hari akibat UTC)
+  const [y, m, d] = dateKey.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function cutoffDateKey(daysAgo) {
+  return getLocalDateKey(officeTimezone, daysAgo);
+}
+
+function formatDurationJam(ms) {
+  if (ms < 0) return '-';
+  const totalMinutes = Math.floor(ms / 60000);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${h}j ${m}m`;
+}
+
+async function loadAdminReport() {
+  const statusEl = document.getElementById('adminReportStatus');
+  const body = document.getElementById('adminReportBody');
+  statusEl.textContent = 'Memuat data...';
+  body.innerHTML = `<tr class="empty-row"><td colspan="7">Memuat…</td></tr>`;
+
+  try {
+    // 1. Ambil semua pegawai sekali saja, buat lookup map: uid -> {nama, kontrak}
+    const pegawaiSnap = await getDocs(collection(db, 'pegawai'));
+    const pegawaiMap = {};
+    pegawaiSnap.docs.forEach(d => {
+      const p = d.data();
+      pegawaiMap[d.id] = { nama: p.nama || p.name || '(tanpa nama)', kontrak: p.kontrak || '-' };
+    });
+
+    // 2. Ambil presensi 30 hari terakhir (filter & orderBy field yang sama -> tidak perlu composite index)
+    const cutoff = cutoffDateKey(30);
+    const q = query(
+      collection(db, 'presensi'),
+      where('date', '>=', cutoff),
+      orderBy('date', 'desc')
+    );
+    const presensiSnap = await getDocs(q);
+
+    if (presensiSnap.empty) {
+      body.innerHTML = `<tr class="empty-row"><td colspan="7">Belum ada data presensi dalam 30 hari terakhir.</td></tr>`;
+      statusEl.textContent = '';
+      lastAdminReportRows = [];
+      return;
+    }
+
+    const rows = presensiSnap.docs.map(d => {
+      const r = d.data();
+      const pegawai = pegawaiMap[r.employeeId] || { nama: r.employeeName || '(tidak diketahui)', kontrak: '-' };
+      const dateObj = parseDateKeyLocal(r.date);
+      const hari = HARI_ID[dateObj.getDay()];
+      const inT = r.checkInTime && r.checkInTime.toDate ? r.checkInTime.toDate() : null;
+      const outT = r.checkOutTime && r.checkOutTime.toDate ? r.checkOutTime.toDate() : null;
+      const totalJam = (inT && outT) ? formatDurationJam(outT - inT) : '-';
+      return {
+        hari, tanggal: r.date, nama: pegawai.nama, kontrak: pegawai.kontrak,
+        jamMasuk: inT ? fmtTime(inT) : '-',
+        jamPulang: outT ? fmtTime(outT) : '-',
+        totalJam
+      };
+    });
+
+    lastAdminReportRows = rows;
+
+    body.innerHTML = rows.map(row => `<tr>
+      <td>${row.hari}</td>
+      <td>${row.tanggal}</td>
+      <td>${row.nama}</td>
+      <td>${row.kontrak}</td>
+      <td>${row.jamMasuk}</td>
+      <td>${row.jamPulang}</td>
+      <td>${row.totalJam}</td>
+    </tr>`).join('');
+
+    statusEl.textContent = `${rows.length} baris ditemukan (30 hari terakhir).`;
+  } catch (e) {
+    console.error('[loadAdminReport error]', e);
+    const urlMatch = e.message.match(/https:\/\/[^\s)]+/);
+    if (urlMatch) {
+      body.innerHTML = `<tr class="empty-row"><td colspan="7">
+        Perlu index Firestore dulu.
+        <a href="${urlMatch[0]}" target="_blank" rel="noopener" style="color:var(--teal);font-weight:600;">Klik untuk membuat index otomatis</a>,
+        tunggu 1-2 menit lalu klik "Muat / Refresh" lagi.
+      </td></tr>`;
+    } else {
+      body.innerHTML = `<tr class="empty-row"><td colspan="7">Gagal memuat laporan: ${e.message}</td></tr>`;
+    }
+    statusEl.textContent = '';
+  }
+}
+
+function exportAdminReportCSV() {
+  if (!lastAdminReportRows.length) {
+    alert('Belum ada data untuk di-export. Klik "Muat / Refresh" dulu.');
+    return;
+  }
+  const header = 'Hari,Tanggal,Nama,Kontrak,Jam Masuk,Jam Pulang,Total Jam';
+  const lines = lastAdminReportRows.map(r =>
+    [r.hari, r.tanggal, r.nama, r.kontrak, r.jamMasuk, r.jamPulang, r.totalJam]
+      .map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
+  );
+  const csv = [header, ...lines].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `laporan-presensi-${todayKey()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportAdminReportExcel() {
+  if (typeof XLSX === 'undefined') {
+    alert('Library Excel gagal dimuat (cek koneksi internet ke cdnjs.cloudflare.com).');
+    return;
+  }
+  if (!lastAdminReportRows.length) {
+    alert('Belum ada data untuk di-export. Klik "Muat / Refresh" dulu.');
+    return;
+  }
+  const data = lastAdminReportRows.map(r => ({
+    'Hari': r.hari,
+    'Tanggal': r.tanggal,
+    'Nama': r.nama,
+    'Kontrak': r.kontrak,
+    'Jam Masuk': r.jamMasuk,
+    'Jam Pulang': r.jamPulang,
+    'Total Jam': r.totalJam
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  ws['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 26 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Laporan Presensi');
+  XLSX.writeFile(wb, `laporan-presensi-${todayKey()}.xlsx`);
+}
+
+function exportPersonalLogExcel() {
+  if (typeof XLSX === 'undefined') {
+    alert('Library Excel gagal dimuat (cek koneksi internet ke cdnjs.cloudflare.com).');
+    return;
+  }
+  if (!lastPersonalLogRows.length) {
+    alert('Belum ada data riwayat untuk di-export.');
+    return;
+  }
+  const data = lastPersonalLogRows.map(r => ({
+    'Tanggal': r.tanggal,
+    'Jam Masuk': r.jamMasuk,
+    'Jam Pulang': r.jamPulang
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  ws['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 10 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Riwayat Presensi');
+  XLSX.writeFile(wb, `riwayat-presensi-${currentUser.username}-${todayKey()}.xlsx`);
+}
+
+/* ---------- Ekspos ke window karena dipanggil dari atribut onclick ---------- */
+window.handleLogin = handleLogin;
+window.handleLogout = handleLogout;
+window.loadAdminReport = loadAdminReport;
+/* ---------- Kelola Data Pegawai (Admin): list, tambah, edit ---------- */
+let pegawaiListCache = {}; // docId -> data, dipakai saat klik Edit
+let editingPegawaiDocId = null; // null = mode tambah baru, terisi = mode edit
+
+async function loadPegawaiList() {
+  const body = document.getElementById('pegawaiListBody');
+  body.innerHTML = `<tr class="empty-row"><td colspan="5">Memuat…</td></tr>`;
+  try {
+    const snap = await getDocs(collection(db, 'pegawai'));
+    pegawaiListCache = {};
+    if (snap.empty) {
+      body.innerHTML = `<tr class="empty-row"><td colspan="5">Belum ada data pegawai.</td></tr>`;
+      return;
+    }
+    const rows = [];
+    snap.docs.forEach(d => {
+      const p = d.data();
+      pegawaiListCache[d.id] = p;
+      rows.push({ id: d.id, ...p });
+    });
+    rows.sort((a, b) => (a.username || '').localeCompare(b.username || ''));
+
+    body.innerHTML = rows.map(r => `<tr>
+      <td>${r.username || '-'}</td>
+      <td>${r.nama || '-'}</td>
+      <td>${r.kontrak || '-'}</td>
+      <td>${r.status || 'user'}</td>
+      <td><button class="edit-link" onclick="editPegawai('${r.id}')">Edit</button></td>
+    </tr>`).join('');
+  } catch (e) {
+    console.error('[loadPegawaiList error]', e);
+    body.innerHTML = `<tr class="empty-row"><td colspan="5">Gagal memuat: ${e.message}</td></tr>`;
+  }
+}
+
+function editPegawai(docId) {
+  const p = pegawaiListCache[docId];
+  if (!p) return;
+  editingPegawaiDocId = docId;
+
+  document.getElementById('pfUsername').value = p.username || '';
+  document.getElementById('pfPassword').value = '';
+  document.getElementById('pfPasswordHint').textContent = '(kosongkan jika tidak ingin ganti password)';
+  document.getElementById('pfNama').value = p.nama || '';
+  document.getElementById('pfKontrak').value = p.kontrak || '';
+  document.getElementById('pfStatus').value = (p.status || 'user').toLowerCase() === 'admin' ? 'admin' : 'user';
+
+  document.getElementById('pfSaveBtn').textContent = 'Update Pegawai';
+  document.getElementById('pfCancelBtn').classList.remove('hidden');
+  document.getElementById('pegawaiManageCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function cancelEditPegawai() {
+  editingPegawaiDocId = null;
+  document.getElementById('pfUsername').value = '';
+  document.getElementById('pfPassword').value = '';
+  document.getElementById('pfPasswordHint').textContent = '';
+  document.getElementById('pfNama').value = '';
+  document.getElementById('pfKontrak').value = '';
+  document.getElementById('pfStatus').value = 'user';
+  document.getElementById('pfSaveBtn').textContent = 'Tambah Pegawai';
+  document.getElementById('pfCancelBtn').classList.add('hidden');
+  document.getElementById('pfMsg').classList.add('hidden');
+}
+
+async function savePegawaiForm() {
+  const username = document.getElementById('pfUsername').value.trim();
+  const password = document.getElementById('pfPassword').value;
+  const nama = document.getElementById('pfNama').value.trim();
+  const kontrak = document.getElementById('pfKontrak').value.trim();
+  const status = document.getElementById('pfStatus').value;
+  const msg = document.getElementById('pfMsg');
+  msg.classList.remove('hidden', 'ok');
+  msg.classList.add('warn');
+
+  if (!username || !nama) {
+    msg.textContent = 'Username dan Nama wajib diisi.';
+    return;
+  }
+  if (!editingPegawaiDocId && !password) {
+    msg.textContent = 'Password wajib diisi untuk pegawai baru.';
+    return;
+  }
+
+  const btn = document.getElementById('pfSaveBtn');
+  btn.disabled = true;
+
+  try {
+    if (editingPegawaiDocId) {
+      // Mode edit: cek username tidak bentrok dengan pegawai lain (selain dirinya sendiri)
+      const dupQ = query(collection(db, 'pegawai'), where('username', '==', username));
+      const dupSnap = await getDocs(dupQ);
+      const bentrok = dupSnap.docs.some(d => d.id !== editingPegawaiDocId);
+      if (bentrok) {
+        msg.textContent = `Username "${username}" sudah dipakai pegawai lain.`;
+        btn.disabled = false;
+        return;
+      }
+
+      const updateData = { username, nama, kontrak, status };
+      if (password) updateData.password = password; // hanya update password kalau diisi
+      await updateDoc(doc(db, 'pegawai', editingPegawaiDocId), updateData);
+
+      msg.classList.remove('warn'); msg.classList.add('ok');
+      msg.textContent = `Data "${nama}" berhasil diupdate.`;
+    } else {
+      // Mode tambah: cek username belum dipakai
+      const dupQ = query(collection(db, 'pegawai'), where('username', '==', username));
+      const dupSnap = await getDocs(dupQ);
+      if (!dupSnap.empty) {
+        msg.textContent = `Username "${username}" sudah dipakai.`;
+        btn.disabled = false;
+        return;
+      }
+
+      await addDoc(collection(db, 'pegawai'), { username, password, nama, kontrak, status });
+      msg.classList.remove('warn'); msg.classList.add('ok');
+      msg.textContent = `Pegawai "${nama}" berhasil ditambahkan.`;
+    }
+
+    cancelEditPegawai();
+    msg.classList.remove('hidden'); // cancelEditPegawai menyembunyikannya, tampilkan lagi sesaat
+    msg.classList.add('ok');
+    await loadPegawaiList();
+  } catch (e) {
+    msg.textContent = 'Gagal menyimpan: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ---------- Ekspos ke window karena dipanggil dari atribut onclick ---------- */
+window.loadPegawaiList = loadPegawaiList;
+window.editPegawai = editPegawai;
+window.cancelEditPegawai = cancelEditPegawai;
+window.savePegawaiForm = savePegawaiForm;
+window.exportAdminReportCSV = exportAdminReportCSV;
+window.exportAdminReportExcel = exportAdminReportExcel;
+window.exportPersonalLogExcel = exportPersonalLogExcel;
+window.handleCheckIn = handleCheckIn;
+window.handleCheckOut = handleCheckOut;
+window.toggleConfig = toggleConfig;
+window.saveConfig = saveConfig;
+
+/* ---------- Auto-login dari sesi tersimpan (localStorage) ---------- */
+async function restoreSession() {
+  const saved = localStorage.getItem('presensi_session');
+  if (!saved) return;
+  try {
+    currentUser = JSON.parse(saved);
+    document.getElementById('whoName').textContent = currentUser.name;
+    document.getElementById('loginView').classList.add('hidden');
+    document.getElementById('dashView').classList.remove('hidden');
+    document.getElementById('wrap').classList.add('dash-wrap');
+    document.getElementById('adminConfigWrap').classList.toggle('hidden', !currentUser.isAdmin);
+    document.getElementById('adminReportCard').classList.toggle('hidden', !currentUser.isAdmin);
+    document.getElementById('pegawaiManageCard').classList.toggle('hidden', !currentUser.isAdmin);
+
+    startClock();
+    startOfficeConfigListener();
+    startLocationWatch();
+    await loadTodayRecord();
+    await renderLog();
+    updateButtons();
+    resetInactivityTimer();
+  } catch (e) {
+    console.error('[restoreSession error]', e);
+    localStorage.removeItem('presensi_session');
+  }
+}
+// Tunggu db siap (module ini async), baru cek sesi
+if (db) restoreSession();
+</script>
+</body>
+</html>
