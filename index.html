@@ -102,10 +102,10 @@
           <div style="overflow-x:auto;">
             <table>
               <thead>
-                <tr><th>Tanggal</th><th>Masuk</th><th>Pulang</th></tr>
+                <tr><th>Tanggal</th><th>Zona</th><th>Masuk</th><th>Pulang</th></tr>
               </thead>
               <tbody id="logBody">
-                <tr class="empty-row"><td colspan="3">Memuat…</td></tr>
+                <tr class="empty-row"><td colspan="4">Memuat…</td></tr>
               </tbody>
             </table>
           </div>
@@ -113,8 +113,10 @@
 
         <div class="card admin-report-card hidden" id="adminReportCard">
           <div class="report-head">
-            <h2>Laporan Presensi — 30 Hari Terakhir (Semua Pegawai)</h2>
-            <div>
+            <h2>Laporan Presensi (Semua Pegawai)</h2>
+            <div class="report-controls">
+              <label>Dari <input id="adminReportStartDate" type="date"></label>
+              <label>Sampai <input id="adminReportEndDate" type="date"></label>
               <button class="btn btn-ghost" onclick="loadAdminReport()">Muat / Refresh</button>
               <button class="btn btn-ghost" onclick="exportAdminReportCSV()">Export CSV</button>
               <button class="btn btn-ghost" onclick="exportAdminReportExcel()">Export Excel</button>
@@ -124,12 +126,17 @@
           <div style="overflow-x:auto;">
             <table id="adminReportTable">
               <thead>
-                <tr><th>Hari</th><th>Tanggal</th><th>Nama</th><th>Kontrak</th><th>Jam Masuk</th><th>Jam Pulang</th><th>Total Jam</th></tr>
+                <tr><th>Hari</th><th>Tanggal</th><th>Zona</th><th>Nama</th><th>Kontrak</th><th>Jam Masuk</th><th>Jam Pulang</th><th>Total Jam</th></tr>
               </thead>
               <tbody id="adminReportBody">
-                <tr class="empty-row"><td colspan="7">Klik "Muat / Refresh" untuk menampilkan laporan</td></tr>
+                <tr class="empty-row"><td colspan="8">Klik "Muat / Refresh" untuk menampilkan laporan</td></tr>
               </tbody>
             </table>
+          </div>
+          <div class="pagination-bar hidden" id="adminReportPagination">
+            <button class="btn btn-ghost" id="adminReportPrevBtn" onclick="changeAdminReportPage(-1)">Sebelumnya</button>
+            <span id="adminReportPageInfo"></span>
+            <button class="btn btn-ghost" id="adminReportNextBtn" onclick="changeAdminReportPage(1)">Berikutnya</button>
           </div>
         </div>
 
@@ -258,12 +265,12 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   return R * c;
 }
-function getLocalDateKey(tz, daysOffset = 0) {
+function getLocalDateKey(tz, daysOffset = 0, sourceDate = new Date()) {
   // Hitung tanggal kalender (YYYY-MM-DD) sesuai timezone kantor, bukan timezone device.
   // Ini penting supaya tanggal presensi tidak salah geser di sekitar jam 00:00-08:00
   // untuk zona WITA/WIT dibanding kalau hanya pakai toISOString() (yang berbasis UTC).
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
-    .formatToParts(new Date());
+    .formatToParts(sourceDate);
   const y = +parts.find(p => p.type === 'year').value;
   const m = +parts.find(p => p.type === 'month').value;
   const d = +parts.find(p => p.type === 'day').value;
@@ -277,8 +284,44 @@ function getLocalDateKey(tz, daysOffset = 0) {
 function todayKey() {
   return getLocalDateKey(officeTimezone, 0);
 }
-function fmtTime(d) {
-  return d.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone: officeTimezone });
+function dateKeyFromTimestamp(ts, tz = officeTimezone) {
+  const d = ts && ts.toDate ? ts.toDate() : null;
+  return d ? getLocalDateKey(tz, 0, d) : null;
+}
+function timezoneFromLongitude(lng) {
+  if (typeof lng !== 'number' || Number.isNaN(lng)) return null;
+  if (lng >= 135) return 'Asia/Jayapura';
+  if (lng >= 115) return 'Asia/Makassar';
+  return 'Asia/Jakarta';
+}
+function timezoneLabel(tz) {
+  return { 'Asia/Jakarta': 'WIB', 'Asia/Makassar': 'WITA', 'Asia/Jayapura': 'WIT' }[tz] || tz || '-';
+}
+function recordTimezone(record) {
+  return timezoneFromLongitude(record.checkInLng) ||
+         timezoneFromLongitude(record.checkOutLng) ||
+         record.timezone ||
+         record.checkOutTimezone ||
+         officeTimezone;
+}
+function attendanceDateKey(record) {
+  return dateKeyFromTimestamp(record.checkInTime, recordTimezone(record)) || record.date;
+}
+function addDaysToDateKey(dateKey, days) {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const dateObj = new Date(y, m - 1, d);
+  dateObj.setDate(dateObj.getDate() + days);
+  const yy = dateObj.getFullYear();
+  const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const dd = String(dateObj.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+function fmtTime(d, tz = officeTimezone) {
+  return d.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone: tz });
+}
+function getHourInTimezone(date, tz = officeTimezone) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', hour12: false }).formatToParts(date);
+  return Number(parts.find(p => p.type === 'hour').value);
 }
 
 /* ---------- Login / Logout ---------- */
@@ -486,15 +529,21 @@ async function saveConfig() {
 /* ---------- Firestore: cek apakah sudah ada presensi hari ini ---------- */
 async function loadTodayRecord() {
   todayDocId = null;
-  const q = query(
-    collection(db, 'presensi'),
-    where('employeeId', '==', currentUser.uid),
-    where('date', '==', todayKey())
-  );
-  const snap = await getDocs(q);
-  if (!snap.empty) {
-    todayDocId = snap.docs[0].id;
-    window._todayRecord = snap.docs[0].data();
+  const today = todayKey();
+  const yesterday = addDaysToDateKey(today, -1);
+  const [todaySnap, yesterdaySnap] = await Promise.all([today, yesterday].map(dateKey => {
+    const q = query(
+      collection(db, 'presensi'),
+      where('employeeId', '==', currentUser.uid),
+      where('date', '==', dateKey)
+    );
+    return getDocs(q);
+  }));
+  const docs = [...todaySnap.docs, ...yesterdaySnap.docs];
+  const todayDoc = docs.find(d => attendanceDateKey(d.data()) === today);
+  if (todayDoc) {
+    todayDocId = todayDoc.id;
+    window._todayRecord = todayDoc.data();
   } else {
     window._todayRecord = null;
   }
@@ -524,7 +573,7 @@ function updateButtons() {
     if (!inRange) msg.textContent = 'Anda harus berada dalam radius kantor untuk menekan Masuk.';
   }
 
-  const bolehJamPulang = now.getHours() >= JAM_BOLEH_PULANG;
+  const bolehJamPulang = getHourInTimezone(now, officeTimezone) >= JAM_BOLEH_PULANG;
   if (!rec) {
     btnPulang.disabled = true;
     btnPulang.textContent = 'Pulang';
@@ -545,10 +594,12 @@ async function handleCheckIn() {
   btn.disabled = true;
   btn.textContent = 'Menyimpan…';
   try {
+    const attendanceDate = todayKey();
     const docRef = await addDoc(collection(db, 'presensi'), {
       employeeId: currentUser.uid,
       employeeName: currentUser.name,
-      date: todayKey(),
+      date: attendanceDate,
+      timezone: officeTimezone,
       checkInTime: serverTimestamp(),
       checkInLat: currentPos.lat,
       checkInLng: currentPos.lng,
@@ -558,6 +609,8 @@ async function handleCheckIn() {
     });
     todayDocId = docRef.id;
     window._todayRecord = {
+      date: attendanceDate,
+      timezone: officeTimezone,
       checkInTime: Timestamp.now(), checkInLat: currentPos.lat, checkInLng: currentPos.lng,
       checkOutTime: null
     };
@@ -581,10 +634,12 @@ async function handleCheckOut() {
   try {
     await updateDoc(doc(db, 'presensi', todayDocId), {
       checkOutTime: serverTimestamp(),
+      checkOutTimezone: officeTimezone,
       checkOutLat: currentPos.lat,
       checkOutLng: currentPos.lng
     });
     window._todayRecord.checkOutTime = Timestamp.now();
+    window._todayRecord.checkOutTimezone = officeTimezone;
     const msg = document.getElementById('actionMsg');
     msg.classList.remove('warn'); msg.classList.add('ok');
     msg.textContent = 'Presensi pulang berhasil disimpan ke Firestore.';
@@ -600,7 +655,7 @@ async function handleCheckOut() {
 /* ---------- Render tabel log dari Firestore ---------- */
 async function renderLog() {
   const body = document.getElementById('logBody');
-  body.innerHTML = `<tr class="empty-row"><td colspan="3">Memuat…</td></tr>`;
+  body.innerHTML = `<tr class="empty-row"><td colspan="4">Memuat…</td></tr>`;
 
   // Catatan: query where + orderBy pada field berbeda butuh composite index.
   // Firestore akan menampilkan link otomatis di console browser untuk membuatnya
@@ -618,20 +673,20 @@ async function renderLog() {
     console.error('[Firestore renderLog error]', e);
     const urlMatch = e.message.match(/https:\/\/[^\s)]+/);
     if (urlMatch) {
-      body.innerHTML = `<tr class="empty-row"><td colspan="3">
+      body.innerHTML = `<tr class="empty-row"><td colspan="4">
         Perlu index Firestore dulu.
         <a href="${urlMatch[0]}" target="_blank" rel="noopener" style="color:var(--teal);font-weight:600;">
           Klik di sini untuk membuat index otomatis
         </a>, lalu tunggu 1-2 menit dan refresh halaman ini.
       </td></tr>`;
     } else {
-      body.innerHTML = `<tr class="empty-row"><td colspan="3">Gagal memuat riwayat: ${e.message}</td></tr>`;
+      body.innerHTML = `<tr class="empty-row"><td colspan="4">Gagal memuat riwayat: ${e.message}</td></tr>`;
     }
     return;
   }
 
   if (snap.empty) {
-    body.innerHTML = `<tr class="empty-row"><td colspan="3">Belum ada presensi</td></tr>`;
+    body.innerHTML = `<tr class="empty-row"><td colspan="4">Belum ada presensi</td></tr>`;
     lastPersonalLogRows = [];
     return;
   }
@@ -640,10 +695,12 @@ async function renderLog() {
     const r = d.data();
     const inT = r.checkInTime && r.checkInTime.toDate ? r.checkInTime.toDate() : null;
     const outT = r.checkOutTime && r.checkOutTime.toDate ? r.checkOutTime.toDate() : null;
+    const tz = recordTimezone(r);
     return {
-      tanggal: r.date,
-      jamMasuk: inT ? fmtTime(inT) : '-',
-      jamPulang: outT ? fmtTime(outT) : '-'
+      tanggal: attendanceDateKey(r),
+      zona: timezoneLabel(tz),
+      jamMasuk: inT ? fmtTime(inT, tz) : '-',
+      jamPulang: outT ? fmtTime(outT, tz) : '-'
     };
   });
 
@@ -651,17 +708,22 @@ async function renderLog() {
     const r = d.data();
     const inT = r.checkInTime && r.checkInTime.toDate ? r.checkInTime.toDate() : null;
     const outT = r.checkOutTime && r.checkOutTime.toDate ? r.checkOutTime.toDate() : null;
+    const tz = recordTimezone(r);
+    const tanggal = attendanceDateKey(r);
     return `<tr>
-      <td>${r.date}</td>
-      <td>${inT ? fmtTime(inT) : '—'}<div class="coord-cell">${r.checkInLat?.toFixed(5)}, ${r.checkInLng?.toFixed(5)}</div></td>
-      <td>${outT ? fmtTime(outT) : '—'}${outT ? `<div class="coord-cell">${r.checkOutLat.toFixed(5)}, ${r.checkOutLng.toFixed(5)}</div>` : ''}</td>
+      <td>${tanggal}</td>
+      <td>${timezoneLabel(tz)}</td>
+      <td>${inT ? fmtTime(inT, tz) : '—'}<div class="coord-cell">${r.checkInLat?.toFixed(5)}, ${r.checkInLng?.toFixed(5)}</div></td>
+      <td>${outT ? fmtTime(outT, tz) : '—'}${outT ? `<div class="coord-cell">${r.checkOutLat.toFixed(5)}, ${r.checkOutLng.toFixed(5)}</div>` : ''}</td>
     </tr>`;
   }).join('');
 }
 
-/* ---------- Laporan Admin: presensi 30 hari terakhir, semua pegawai ---------- */
+/* ---------- Laporan Admin: presensi sesuai range tanggal, semua pegawai ---------- */
 const HARI_ID = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
-let lastAdminReportRows = []; // dipakai untuk export CSV
+const ADMIN_REPORT_PAGE_SIZE = 20;
+let lastAdminReportRows = []; // dipakai untuk export CSV/Excel dan paging
+let adminReportCurrentPage = 1;
 
 function parseDateKeyLocal(dateKey) {
   // dateKey format 'YYYY-MM-DD' -> Date object di timezone lokal (hindari geser hari akibat UTC)
@@ -671,6 +733,14 @@ function parseDateKeyLocal(dateKey) {
 
 function cutoffDateKey(daysAgo) {
   return getLocalDateKey(officeTimezone, daysAgo);
+}
+
+function ensureAdminReportDateRange() {
+  const startInput = document.getElementById('adminReportStartDate');
+  const endInput = document.getElementById('adminReportEndDate');
+  if (!endInput.value) endInput.value = todayKey();
+  if (!startInput.value) startInput.value = cutoffDateKey(30);
+  return { startDate: startInput.value, endDate: endInput.value };
 }
 
 function formatDurationJam(ms) {
@@ -684,8 +754,20 @@ function formatDurationJam(ms) {
 async function loadAdminReport() {
   const statusEl = document.getElementById('adminReportStatus');
   const body = document.getElementById('adminReportBody');
+  const pagination = document.getElementById('adminReportPagination');
+  const { startDate, endDate } = ensureAdminReportDateRange();
+
+  if (startDate > endDate) {
+    body.innerHTML = `<tr class="empty-row"><td colspan="8">Range tanggal tidak valid. Tanggal awal harus sebelum atau sama dengan tanggal akhir.</td></tr>`;
+    statusEl.textContent = '';
+    pagination.classList.add('hidden');
+    lastAdminReportRows = [];
+    return;
+  }
+
   statusEl.textContent = 'Memuat data...';
-  body.innerHTML = `<tr class="empty-row"><td colspan="7">Memuat…</td></tr>`;
+  body.innerHTML = `<tr class="empty-row"><td colspan="8">Memuat…</td></tr>`;
+  pagination.classList.add('hidden');
 
   try {
     // 1. Ambil semua pegawai sekali saja, buat lookup map: uid -> {nama, kontrak}
@@ -696,75 +778,139 @@ async function loadAdminReport() {
       pegawaiMap[d.id] = { nama: p.nama || p.name || '(tanpa nama)', kontrak: p.kontrak || '-' };
     });
 
-    // 2. Ambil presensi 30 hari terakhir (filter & orderBy field yang sama -> tidak perlu composite index)
-    const cutoff = cutoffDateKey(30);
+    // 2. Ambil presensi sesuai range tanggal. Query dimulai H-1 agar data lama yang sempat
+    // tersimpan memakai tanggal UTC tetap bisa dikoreksi berdasarkan checkInTime timezone kantor.
+    const queryStartDate = addDaysToDateKey(startDate, -1);
     const q = query(
       collection(db, 'presensi'),
-      where('date', '>=', cutoff),
+      where('date', '>=', queryStartDate),
+      where('date', '<=', endDate),
       orderBy('date', 'desc')
     );
     const presensiSnap = await getDocs(q);
 
     if (presensiSnap.empty) {
-      body.innerHTML = `<tr class="empty-row"><td colspan="7">Belum ada data presensi dalam 30 hari terakhir.</td></tr>`;
+      body.innerHTML = `<tr class="empty-row"><td colspan="8">Belum ada data presensi pada range tanggal tersebut.</td></tr>`;
       statusEl.textContent = '';
       lastAdminReportRows = [];
+      pagination.classList.add('hidden');
       return;
     }
 
     const rows = presensiSnap.docs.map(d => {
       const r = d.data();
       const pegawai = pegawaiMap[r.employeeId] || { nama: r.employeeName || '(tidak diketahui)', kontrak: '-' };
-      const dateObj = parseDateKeyLocal(r.date);
+      const tz = recordTimezone(r);
+      const tanggal = attendanceDateKey(r);
+      const dateObj = parseDateKeyLocal(tanggal);
       const hari = HARI_ID[dateObj.getDay()];
       const inT = r.checkInTime && r.checkInTime.toDate ? r.checkInTime.toDate() : null;
       const outT = r.checkOutTime && r.checkOutTime.toDate ? r.checkOutTime.toDate() : null;
       const totalJam = (inT && outT) ? formatDurationJam(outT - inT) : '-';
       return {
-        hari, tanggal: r.date, nama: pegawai.nama, kontrak: pegawai.kontrak,
-        jamMasuk: inT ? fmtTime(inT) : '-',
-        jamPulang: outT ? fmtTime(outT) : '-',
+        hari, tanggal, zona: timezoneLabel(tz), nama: pegawai.nama, kontrak: pegawai.kontrak,
+        jamMasuk: inT ? fmtTime(inT, tz) : '-',
+        jamPulang: outT ? fmtTime(outT, tz) : '-',
         totalJam
       };
-    });
+    }).filter(row => row.tanggal >= startDate && row.tanggal <= endDate)
+      .sort((a, b) => b.tanggal.localeCompare(a.tanggal) || a.nama.localeCompare(b.nama));
+
+    if (!rows.length) {
+      body.innerHTML = `<tr class="empty-row"><td colspan="8">Belum ada data presensi pada range tanggal tersebut.</td></tr>`;
+      statusEl.textContent = '';
+      lastAdminReportRows = [];
+      pagination.classList.add('hidden');
+      return;
+    }
 
     lastAdminReportRows = rows;
-
-    body.innerHTML = rows.map(row => `<tr>
-      <td>${row.hari}</td>
-      <td>${row.tanggal}</td>
-      <td>${row.nama}</td>
-      <td>${row.kontrak}</td>
-      <td>${row.jamMasuk}</td>
-      <td>${row.jamPulang}</td>
-      <td>${row.totalJam}</td>
-    </tr>`).join('');
-
-    statusEl.textContent = `${rows.length} baris ditemukan (30 hari terakhir).`;
+    adminReportCurrentPage = 1;
+    renderAdminReportPage();
   } catch (e) {
     console.error('[loadAdminReport error]', e);
     const urlMatch = e.message.match(/https:\/\/[^\s)]+/);
     if (urlMatch) {
-      body.innerHTML = `<tr class="empty-row"><td colspan="7">
+      body.innerHTML = `<tr class="empty-row"><td colspan="8">
         Perlu index Firestore dulu.
         <a href="${urlMatch[0]}" target="_blank" rel="noopener" style="color:var(--teal);font-weight:600;">Klik untuk membuat index otomatis</a>,
         tunggu 1-2 menit lalu klik "Muat / Refresh" lagi.
       </td></tr>`;
     } else {
-      body.innerHTML = `<tr class="empty-row"><td colspan="7">Gagal memuat laporan: ${e.message}</td></tr>`;
+      body.innerHTML = `<tr class="empty-row"><td colspan="8">Gagal memuat laporan: ${e.message}</td></tr>`;
     }
     statusEl.textContent = '';
+    pagination.classList.add('hidden');
   }
 }
 
+function renderAdminReportPage() {
+  const statusEl = document.getElementById('adminReportStatus');
+  const body = document.getElementById('adminReportBody');
+  const pagination = document.getElementById('adminReportPagination');
+  const prevBtn = document.getElementById('adminReportPrevBtn');
+  const nextBtn = document.getElementById('adminReportNextBtn');
+  const pageInfo = document.getElementById('adminReportPageInfo');
+  const { startDate, endDate } = ensureAdminReportDateRange();
+  const totalRows = lastAdminReportRows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / ADMIN_REPORT_PAGE_SIZE));
+
+  adminReportCurrentPage = Math.min(Math.max(adminReportCurrentPage, 1), totalPages);
+
+  if (!totalRows) {
+    body.innerHTML = `<tr class="empty-row"><td colspan="8">Belum ada data presensi pada range tanggal tersebut.</td></tr>`;
+    statusEl.textContent = '';
+    pagination.classList.add('hidden');
+    return;
+  }
+
+  const startIndex = (adminReportCurrentPage - 1) * ADMIN_REPORT_PAGE_SIZE;
+  const pageRows = lastAdminReportRows.slice(startIndex, startIndex + ADMIN_REPORT_PAGE_SIZE);
+
+  body.innerHTML = pageRows.map(row => `<tr>
+    <td>${row.hari}</td>
+    <td>${row.tanggal}</td>
+    <td>${row.zona}</td>
+    <td>${row.nama}</td>
+    <td>${row.kontrak}</td>
+    <td>${row.jamMasuk}</td>
+    <td>${row.jamPulang}</td>
+    <td>${row.totalJam}</td>
+  </tr>`).join('');
+
+  const shownStart = startIndex + 1;
+  const shownEnd = Math.min(startIndex + ADMIN_REPORT_PAGE_SIZE, totalRows);
+  statusEl.textContent = `${totalRows} baris ditemukan (${startDate} s.d. ${endDate}). Menampilkan ${shownStart}-${shownEnd}.`;
+  pageInfo.textContent = `Halaman ${adminReportCurrentPage} dari ${totalPages}`;
+  prevBtn.disabled = adminReportCurrentPage <= 1;
+  nextBtn.disabled = adminReportCurrentPage >= totalPages;
+  pagination.classList.toggle('hidden', totalPages <= 1);
+}
+
+function changeAdminReportPage(direction) {
+  adminReportCurrentPage += direction;
+  renderAdminReportPage();
+}
+
+function getAdminReportRowsForExport() {
+  const { startDate, endDate } = ensureAdminReportDateRange();
+  if (startDate > endDate) {
+    alert('Range tanggal tidak valid. Tanggal awal harus sebelum atau sama dengan tanggal akhir.');
+    return [];
+  }
+  return lastAdminReportRows.filter(r => r.tanggal >= startDate && r.tanggal <= endDate);
+}
+
 function exportAdminReportCSV() {
-  if (!lastAdminReportRows.length) {
+  const exportRows = getAdminReportRowsForExport();
+  if (!exportRows.length) {
     alert('Belum ada data untuk di-export. Klik "Muat / Refresh" dulu.');
     return;
   }
-  const header = 'Hari,Tanggal,Nama,Kontrak,Jam Masuk,Jam Pulang,Total Jam';
-  const lines = lastAdminReportRows.map(r =>
-    [r.hari, r.tanggal, r.nama, r.kontrak, r.jamMasuk, r.jamPulang, r.totalJam]
+  const { startDate, endDate } = ensureAdminReportDateRange();
+  const header = 'Hari,Tanggal,Zona,Nama,Kontrak,Jam Masuk,Jam Pulang,Total Jam';
+  const lines = exportRows.map(r =>
+    [r.hari, r.tanggal, r.zona, r.nama, r.kontrak, r.jamMasuk, r.jamPulang, r.totalJam]
       .map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
   );
   const csv = [header, ...lines].join('\n');
@@ -772,7 +918,7 @@ function exportAdminReportCSV() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `laporan-presensi-${todayKey()}.csv`;
+  a.download = `laporan-presensi-${startDate}-sd-${endDate}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -782,13 +928,16 @@ function exportAdminReportExcel() {
     alert('Library Excel gagal dimuat (cek koneksi internet ke cdnjs.cloudflare.com).');
     return;
   }
-  if (!lastAdminReportRows.length) {
+  const exportRows = getAdminReportRowsForExport();
+  if (!exportRows.length) {
     alert('Belum ada data untuk di-export. Klik "Muat / Refresh" dulu.');
     return;
   }
-  const data = lastAdminReportRows.map(r => ({
+  const { startDate, endDate } = ensureAdminReportDateRange();
+  const data = exportRows.map(r => ({
     'Hari': r.hari,
     'Tanggal': r.tanggal,
+    'Zona': r.zona,
     'Nama': r.nama,
     'Kontrak': r.kontrak,
     'Jam Masuk': r.jamMasuk,
@@ -796,10 +945,10 @@ function exportAdminReportExcel() {
     'Total Jam': r.totalJam
   }));
   const ws = XLSX.utils.json_to_sheet(data);
-  ws['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 26 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
+  ws['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 8 }, { wch: 26 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Laporan Presensi');
-  XLSX.writeFile(wb, `laporan-presensi-${todayKey()}.xlsx`);
+  XLSX.writeFile(wb, `laporan-presensi-${startDate}-sd-${endDate}.xlsx`);
 }
 
 function exportPersonalLogExcel() {
@@ -813,11 +962,12 @@ function exportPersonalLogExcel() {
   }
   const data = lastPersonalLogRows.map(r => ({
     'Tanggal': r.tanggal,
+    'Zona': r.zona,
     'Jam Masuk': r.jamMasuk,
     'Jam Pulang': r.jamPulang
   }));
   const ws = XLSX.utils.json_to_sheet(data);
-  ws['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 10 }];
+  ws['!cols'] = [{ wch: 12 }, { wch: 8 }, { wch: 10 }, { wch: 10 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Riwayat Presensi');
   XLSX.writeFile(wb, `riwayat-presensi-${currentUser.username}-${todayKey()}.xlsx`);
@@ -963,6 +1113,7 @@ window.loadPegawaiList = loadPegawaiList;
 window.editPegawai = editPegawai;
 window.cancelEditPegawai = cancelEditPegawai;
 window.savePegawaiForm = savePegawaiForm;
+window.changeAdminReportPage = changeAdminReportPage;
 window.exportAdminReportCSV = exportAdminReportCSV;
 window.exportAdminReportExcel = exportAdminReportExcel;
 window.exportPersonalLogExcel = exportPersonalLogExcel;
