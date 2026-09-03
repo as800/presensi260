@@ -3,7 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Presensi — Kantor</title>
+<title>Presensi Pegawai</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
@@ -13,43 +16,64 @@
   <div class="fb-status" id="fbStatus">Menghubungkan ke Firebase…</div>
 
   <!-- ============ LOGIN VIEW ============ -->
-  <div id="loginView">
-    <div class="eyebrow">Sistem Presensi</div>
-    <h1>Masuk ke akun</h1>
+  <div id="loginView" class="login-view">
+    <div class="login-brand">
+      <div class="brand-mark" aria-hidden="true">P</div>
+      <div>
+        <div class="brand-name">Presensi Pegawai</div>
+        <div class="brand-caption">Kehadiran harian</div>
+      </div>
+    </div>
     <div class="login-card">
+      <div class="login-heading">
+        <h1>Masuk</h1>
+        <p>Gunakan akun pegawai Anda.</p>
+      </div>
       <div class="field">
         <label for="username">Username</label>
-        <input id="username" type="text" placeholder="budi" autocomplete="username">
+        <input id="username" type="text" placeholder="Masukkan username" autocomplete="username">
       </div>
       <div class="field">
         <label for="password">Password</label>
-        <input id="password" type="password" placeholder="••••••" autocomplete="current-password">
+        <input id="password" type="password" placeholder="Masukkan password" autocomplete="current-password">
       </div>
-      <button class="btn btn-primary" id="btnLogin" onclick="handleLogin()">Login</button>
+      <button class="btn btn-primary" id="btnLogin" onclick="handleLogin()">Masuk</button>
       <div class="error-text" id="loginError"></div>
-      <div class="hint">
-        Data pegawai (username, password, nama) disimpan langsung sebagai dokumen
-        di koleksi <b>pegawai</b> pada Firestore — ID dokumen = username.
-      </div>
     </div>
   </div>
 
   <!-- ============ DASHBOARD VIEW ============ -->
   <div id="dashView" class="hidden">
-    <div class="topbar">
-      <div class="who">Halo, <b id="whoName"></b></div>
+    <header class="topbar">
+      <div class="app-brand">
+        <div class="brand-mark" aria-hidden="true">P</div>
+        <div>
+          <div class="brand-name">Presensi Pegawai</div>
+          <div class="brand-caption">Kehadiran harian</div>
+        </div>
+      </div>
+      <div class="user-menu">
+        <div class="who"><span>Masuk sebagai</span><b id="whoName"></b></div>
       <button class="logout" onclick="handleLogout()">Keluar</button>
-    </div>
+      </div>
+    </header>
 
     <div class="dash-grid">
-      <div class="dash-left">
+      <aside class="attendance-panel">
+        <div class="attendance-heading">
+          <div>
+            <div class="section-label">Presensi hari ini</div>
+            <h1 class="attendance-title">Kehadiran</h1>
+          </div>
+          <div class="zone-badge" id="clockZone">WIB</div>
+        </div>
+
         <div class="clock-card">
           <div class="clock-time mono" id="clockTime">00:00:00</div>
           <div class="clock-date" id="clockDate">-</div>
-          <div class="clock-date" id="clockZone" style="font-size:10.5px;letter-spacing:.04em;margin-top:2px;">WIB</div>
         </div>
 
-        <div class="radar-card">
+        <div class="location-card">
           <div class="radar" id="radar">
             <div class="radar-ring"></div>
             <div class="radar-ring r2"></div>
@@ -63,7 +87,7 @@
           </div>
         </div>
 
-        <div class="action-card">
+        <div class="attendance-actions">
           <div class="action-row">
             <button class="btn btn-primary" id="btnMasuk" onclick="handleCheckIn()" disabled>Masuk</button>
             <button class="btn btn-danger" id="btnPulang" onclick="handleCheckOut()" disabled>Pulang</button>
@@ -72,8 +96,8 @@
           <div class="config-note" id="configNote">
             Radius kantor: <b id="cfgRadius">150</b> m dari titik kantor.
             <span id="adminConfigWrap" class="hidden">
-              <button onclick="toggleConfig()">Ubah titik kantor</button>
-              <div id="cfgPanel" class="hidden" style="margin-top:10px;">
+              <button class="text-button" onclick="toggleConfig()">Pengaturan kantor</button>
+              <div id="cfgPanel" class="settings-panel hidden">
                 <div class="field"><label>Latitude kantor</label><input id="officeLat" class="mono"></div>
                 <div class="field"><label>Longitude kantor</label><input id="officeLng" class="mono"></div>
                 <div class="field"><label>Radius (meter)</label><input id="officeRadius" class="mono"></div>
@@ -85,21 +109,24 @@
                     <option value="Asia/Jayapura">WIT — Jayapura (UTC+9)</option>
                   </select>
                 </div>
-                <button class="btn btn-ghost" onclick="saveConfig()">Simpan (berlaku untuk semua pegawai)</button>
-                <div class="msg ok hidden" id="cfgSavedMsg" style="margin-top:8px;">Tersimpan, semua pegawai online akan menerima update ini otomatis.</div>
+                <button class="btn btn-ghost" onclick="saveConfig()">Simpan pengaturan</button>
+                <div class="msg ok hidden" id="cfgSavedMsg">Pengaturan tersimpan.</div>
               </div>
             </span>
           </div>
         </div>
-      </div>
+      </aside>
 
-      <div class="dash-right">
-        <div class="card log-card-wide">
+      <main class="content-stack">
+        <section class="card log-card-wide">
           <div class="report-head">
-            <h2>Riwayat Presensi Saya</h2>
+            <div>
+              <div class="section-label">Aktivitas</div>
+              <h2>Riwayat saya</h2>
+            </div>
             <button class="btn btn-ghost" onclick="exportPersonalLogExcel()">Export Excel</button>
           </div>
-          <div style="overflow-x:auto;">
+          <div class="table-wrap">
             <table>
               <thead>
                 <tr><th>Tanggal</th><th>Zona</th><th>Masuk</th><th>Pulang</th></tr>
@@ -109,27 +136,30 @@
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
 
-        <div class="card admin-report-card hidden" id="adminReportCard">
+        <section class="card admin-report-card hidden" id="adminReportCard">
           <div class="report-head">
-            <h2>Laporan Presensi (Semua Pegawai)</h2>
+            <div>
+              <div class="section-label">Administrator</div>
+              <h2>Laporan presensi</h2>
+            </div>
             <div class="report-controls">
               <label>Dari <input id="adminReportStartDate" type="date"></label>
               <label>Sampai <input id="adminReportEndDate" type="date"></label>
-              <button class="btn btn-ghost" onclick="loadAdminReport()">Muat / Refresh</button>
+              <button class="btn btn-secondary" onclick="loadAdminReport()">Tampilkan</button>
               <button class="btn btn-ghost" onclick="exportAdminReportCSV()">Export CSV</button>
               <button class="btn btn-ghost" onclick="exportAdminReportExcel()">Export Excel</button>
             </div>
           </div>
           <div class="progress-text" id="adminReportStatus"></div>
-          <div style="overflow-x:auto;">
+          <div class="table-wrap">
             <table id="adminReportTable">
               <thead>
                 <tr><th>Hari</th><th>Tanggal</th><th>Zona</th><th>Nama</th><th>Kontrak</th><th>Jam Masuk</th><th>Jam Pulang</th><th>Total Jam</th></tr>
               </thead>
               <tbody id="adminReportBody">
-                <tr class="empty-row"><td colspan="8">Klik "Muat / Refresh" untuk menampilkan laporan</td></tr>
+                <tr class="empty-row"><td colspan="8">Pilih rentang tanggal lalu klik "Tampilkan".</td></tr>
               </tbody>
             </table>
           </div>
@@ -138,12 +168,15 @@
             <span id="adminReportPageInfo"></span>
             <button class="btn btn-ghost" id="adminReportNextBtn" onclick="changeAdminReportPage(1)">Berikutnya</button>
           </div>
-        </div>
+        </section>
 
-        <div class="card hidden" id="pegawaiManageCard">
+        <section class="card hidden" id="pegawaiManageCard">
       <div class="report-head">
-        <h2>Kelola Data Pegawai</h2>
-        <button class="btn btn-ghost" onclick="loadPegawaiList()">Muat / Refresh</button>
+        <div>
+          <div class="section-label">Administrator</div>
+          <h2>Data pegawai</h2>
+        </div>
+        <button class="btn btn-ghost" onclick="loadPegawaiList()">Refresh data</button>
       </div>
 
       <div class="pegawai-form">
@@ -171,18 +204,18 @@
         <div class="msg hidden" id="pfMsg"></div>
       </div>
 
-      <div style="overflow-x:auto;margin-top:16px;">
+      <div class="table-wrap employee-table-wrap">
         <table id="pegawaiListTable">
           <thead>
             <tr><th>Username</th><th>Nama</th><th>Kontrak</th><th>Status</th><th></th></tr>
           </thead>
           <tbody id="pegawaiListBody">
-            <tr class="empty-row"><td colspan="5">Klik "Muat / Refresh" untuk menampilkan daftar pegawai</td></tr>
+            <tr class="empty-row"><td colspan="5">Klik "Refresh data" untuk menampilkan daftar pegawai.</td></tr>
           </tbody>
         </table>
       </div>
-    </div>
-      </div>
+    </section>
+      </main>
     </div>
   </div>
 
@@ -231,13 +264,14 @@ let currentUser = null;      // { uid (=username), name, username }
 let currentPos = null;       // {lat, lng}
 let currentDistance = null;
 let watchId = null;
-let todayDocId = null;       // ID dokumen presensi hari ini (untuk update saat pulang)
+let todayDocId = null;       // ID dokumen presensi aktif/hari ini (untuk update saat pulang)
 let inactivityTimer = null;
 const INACTIVITY_LIMIT_MS = 10 * 60 * 1000; // 10 menit
 let officeConfigUnsub = null; // fungsi untuk berhenti mendengarkan perubahan config kantor
 let lastPersonalLogRows = []; // dipakai untuk export Excel riwayat pribadi
 
 const JAM_BOLEH_PULANG = 13; // demo: tombol Pulang aktif mulai jam 13:00 lokal
+const ACTIVE_SESSION_MAX_HOURS = 36; // mendukung shift malam lintas tanggal tanpa menutup record lama berhari-hari
 
 /* ---------- Auto-logout karena tidak aktif ---------- */
 function resetInactivityTimer() {
@@ -322,6 +356,17 @@ function fmtTime(d, tz = officeTimezone) {
 function getHourInTimezone(date, tz = officeTimezone) {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', hour12: false }).formatToParts(date);
   return Number(parts.find(p => p.type === 'hour').value);
+}
+function timestampToDate(ts) {
+  return ts && ts.toDate ? ts.toDate() : null;
+}
+function sessionAgeHours(record, now = new Date()) {
+  const inT = timestampToDate(record.checkInTime);
+  if (!inT) return Infinity;
+  return (now - inT) / 36e5;
+}
+function isOpenActiveSession(record, now = new Date()) {
+  return !record.checkOutTime && sessionAgeHours(record, now) <= ACTIVE_SESSION_MAX_HOURS;
 }
 
 /* ---------- Login / Logout ---------- */
@@ -529,9 +574,11 @@ async function saveConfig() {
 /* ---------- Firestore: cek apakah sudah ada presensi hari ini ---------- */
 async function loadTodayRecord() {
   todayDocId = null;
+  window._todayRecord = null;
   const today = todayKey();
   const yesterday = addDaysToDateKey(today, -1);
-  const [todaySnap, yesterdaySnap] = await Promise.all([today, yesterday].map(dateKey => {
+  const twoDaysAgo = addDaysToDateKey(today, -2);
+  const [todaySnap, yesterdaySnap, twoDaysAgoSnap] = await Promise.all([today, yesterday, twoDaysAgo].map(dateKey => {
     const q = query(
       collection(db, 'presensi'),
       where('employeeId', '==', currentUser.uid),
@@ -539,8 +586,21 @@ async function loadTodayRecord() {
     );
     return getDocs(q);
   }));
-  const docs = [...todaySnap.docs, ...yesterdaySnap.docs];
+  const docs = [...todaySnap.docs, ...yesterdaySnap.docs, ...twoDaysAgoSnap.docs].sort((a, b) => {
+    const aTime = timestampToDate(a.data().checkInTime)?.getTime() || 0;
+    const bTime = timestampToDate(b.data().checkInTime)?.getTime() || 0;
+    return bTime - aTime;
+  });
+  const now = new Date();
+  const activeDoc = docs.find(d => isOpenActiveSession(d.data(), now));
   const todayDoc = docs.find(d => attendanceDateKey(d.data()) === today);
+
+  if (activeDoc) {
+    todayDocId = activeDoc.id;
+    window._todayRecord = activeDoc.data();
+    return;
+  }
+
   if (todayDoc) {
     todayDocId = todayDoc.id;
     window._todayRecord = todayDoc.data();
@@ -563,8 +623,27 @@ function updateButtons() {
   const rec = window._todayRecord;
   const inRange = currentDistance !== null && currentDistance <= officeLocation.radius;
   const now = new Date();
+  const recDate = rec ? attendanceDateKey(rec) : null;
+  const isExpiredOpenSession = rec && !rec.checkOutTime && sessionAgeHours(rec, now) > ACTIVE_SESSION_MAX_HOURS;
+  const isOpenSession = rec && !rec.checkOutTime && !isExpiredOpenSession;
+  const isCrossDateSession = isOpenSession && recDate !== todayKey();
 
-  if (rec) {
+  if (isExpiredOpenSession) {
+    btnMasuk.textContent = 'Masuk';
+    btnMasuk.disabled = !inRange;
+    btnPulang.disabled = true;
+    btnPulang.textContent = 'Sesi Kedaluwarsa';
+    msg.textContent = `Ada sesi masuk tanggal ${recDate} yang sudah lebih dari ${ACTIVE_SESSION_MAX_HOURS} jam dan perlu dikoreksi admin.`;
+    return;
+  }
+
+  if (isOpenSession) {
+    btnMasuk.disabled = true;
+    btnMasuk.textContent = isCrossDateSession ? 'Sesi Aktif' : 'Sudah Masuk';
+    if (isCrossDateSession) {
+      msg.textContent = `Masih ada sesi masuk tanggal ${recDate}. Tekan Pulang untuk menutup shift tersebut.`;
+    }
+  } else if (rec) {
     btnMasuk.disabled = true;
     btnMasuk.textContent = 'Sudah Masuk';
   } else {
@@ -573,7 +652,7 @@ function updateButtons() {
     if (!inRange) msg.textContent = 'Anda harus berada dalam radius kantor untuk menekan Masuk.';
   }
 
-  const bolehJamPulang = getHourInTimezone(now, officeTimezone) >= JAM_BOLEH_PULANG;
+  const bolehJamPulang = isCrossDateSession || getHourInTimezone(now, rec ? recordTimezone(rec) : officeTimezone) >= JAM_BOLEH_PULANG;
   if (!rec) {
     btnPulang.disabled = true;
     btnPulang.textContent = 'Pulang';
@@ -581,7 +660,7 @@ function updateButtons() {
     btnPulang.disabled = true;
     btnPulang.textContent = 'Sudah Pulang';
   } else {
-    btnPulang.textContent = 'Pulang';
+    btnPulang.textContent = isCrossDateSession ? 'Pulang Shift' : 'Pulang';
     btnPulang.disabled = !(inRange && bolehJamPulang);
     if (!bolehJamPulang) msg.textContent = `Tombol Pulang aktif mulai pukul ${JAM_BOLEH_PULANG}:00.`;
     else if (!inRange) msg.textContent = 'Anda harus berada dalam radius kantor untuk menekan Pulang.';
@@ -590,6 +669,19 @@ function updateButtons() {
 
 async function handleCheckIn() {
   if (!currentPos || !currentUser) return;
+  await loadTodayRecord();
+  if (window._todayRecord && isOpenActiveSession(window._todayRecord)) {
+    const msg = document.getElementById('actionMsg');
+    updateButtons();
+    msg.textContent = `Masih ada sesi masuk tanggal ${attendanceDateKey(window._todayRecord)} yang belum pulang. Tutup sesi itu dulu.`;
+    return;
+  }
+  if (window._todayRecord && attendanceDateKey(window._todayRecord) === todayKey()) {
+    const msg = document.getElementById('actionMsg');
+    updateButtons();
+    msg.textContent = 'Anda sudah melakukan presensi masuk untuk tanggal hari ini.';
+    return;
+  }
   const btn = document.getElementById('btnMasuk');
   btn.disabled = true;
   btn.textContent = 'Menyimpan…';
@@ -627,23 +719,50 @@ async function handleCheckIn() {
 }
 
 async function handleCheckOut() {
-  if (!currentPos || !currentUser || !todayDocId) return;
+  if (!currentPos || !currentUser) return;
+  if (!todayDocId || !window._todayRecord || window._todayRecord.checkOutTime) {
+    await loadTodayRecord();
+  }
+  if (!todayDocId || !window._todayRecord || window._todayRecord.checkOutTime) return;
+  const rec = window._todayRecord;
+  const msg = document.getElementById('actionMsg');
+  const recDate = attendanceDateKey(rec);
+  const isCrossDateSession = recDate !== todayKey();
+  const bolehJamPulang = isCrossDateSession || getHourInTimezone(new Date(), recordTimezone(rec)) >= JAM_BOLEH_PULANG;
+  const inRange = currentDistance !== null && currentDistance <= officeLocation.radius;
+  if (!isOpenActiveSession(rec)) {
+    updateButtons();
+    msg.textContent = `Sesi masuk tanggal ${recDate} sudah lebih dari ${ACTIVE_SESSION_MAX_HOURS} jam dan perlu dikoreksi admin.`;
+    return;
+  }
+  if (!inRange) {
+    updateButtons();
+    msg.textContent = 'Anda harus berada dalam radius kantor untuk menekan Pulang.';
+    return;
+  }
+  if (!bolehJamPulang) {
+    updateButtons();
+    msg.textContent = `Tombol Pulang aktif mulai pukul ${JAM_BOLEH_PULANG}:00.`;
+    return;
+  }
   const btn = document.getElementById('btnPulang');
   btn.disabled = true;
   btn.textContent = 'Menyimpan…';
   try {
     await updateDoc(doc(db, 'presensi', todayDocId), {
       checkOutTime: serverTimestamp(),
+      checkOutDate: todayKey(),
       checkOutTimezone: officeTimezone,
       checkOutLat: currentPos.lat,
       checkOutLng: currentPos.lng
     });
     window._todayRecord.checkOutTime = Timestamp.now();
+    window._todayRecord.checkOutDate = todayKey();
     window._todayRecord.checkOutTimezone = officeTimezone;
-    const msg = document.getElementById('actionMsg');
     msg.classList.remove('warn'); msg.classList.add('ok');
     msg.textContent = 'Presensi pulang berhasil disimpan ke Firestore.';
     await renderLog();
+    await loadTodayRecord();
   } catch (e) {
     const msg = document.getElementById('actionMsg');
     msg.textContent = 'Gagal menyimpan ke Firestore: ' + e.message;
